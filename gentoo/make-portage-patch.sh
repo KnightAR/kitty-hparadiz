@@ -7,7 +7,8 @@
 #   /etc/portage/patches/x11-terms/kitty-X.Y.Z/files/...      changed binary files (patch cannot apply binary diffs)
 #   /etc/portage/env/x11-terms/kitty-X.Y.Z                    post_src_prepare hook copying files/ into the source
 #
-# This gentoo/ directory is never part of the generated patch.
+# The upstream remote (kovidgoyal/kitty) is added if missing and the vX.Y.Z tag is fetched
+# from it every run. This gentoo/ directory is never part of the generated patch.
 #
 # Usage: gentoo/make-portage-patch.sh [-n|--dry-run] [--name NAME.patch]
 
@@ -18,13 +19,15 @@ PN=kitty
 PATCH_NAME=akujin-remix.patch
 DRY_RUN=0
 EXCLUDE=':(exclude)gentoo'
+UPSTREAM_REMOTE=upstream
+UPSTREAM_URL=https://github.com/kovidgoyal/kitty.git
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 info() { printf '%s\n' "$*"; }
 
 usage() {
-    sed -n '2,13s/^# \{0,1\}//p' "$0"
+    sed -n '2,15s/^# \{0,1\}//p' "$0"
     exit "${1:-0}"
 }
 
@@ -48,13 +51,38 @@ g() { git -C "$REPO" "$@"; }
 BRANCH=$(g symbolic-ref --quiet --short HEAD) || die 'HEAD is detached, check out a release-X.Y.Z branch'
 [[ $BRANCH =~ ^release-([0-9]+(\.[0-9]+)*)$ ]] || die "current branch '$BRANCH' is not a release-X.Y.Z branch"
 VER=${BASH_REMATCH[1]}
-if g show-ref --verify --quiet "refs/heads/v$VER"; then
-    BASE=refs/heads/v$VER
-elif g show-ref --verify --quiet "refs/tags/v$VER"; then
-    BASE=refs/tags/v$VER
+
+# The patch is made against upstream's release tag, which is what the Portage
+# distfile is built from, fetched from kovidgoyal/kitty every run.
+if url=$(g remote get-url "$UPSTREAM_REMOTE" 2>/dev/null); then
+    [[ $url =~ github\.com[:/]kovidgoyal/kitty(\.git)?/?$ ]] ||
+        die "remote '$UPSTREAM_REMOTE' points to $url, not kovidgoyal/kitty, fix it with: git remote set-url $UPSTREAM_REMOTE $UPSTREAM_URL"
 else
-    die "neither a v$VER branch nor tag exists, fetch it with: git fetch upstream tag v$VER --no-tags"
+    g remote add "$UPSTREAM_REMOTE" "$UPSTREAM_URL"
+    info "Added remote '$UPSTREAM_REMOTE' -> $UPSTREAM_URL"
 fi
+BASE=refs/tags/v$VER
+info "Fetching v$VER from $UPSTREAM_REMOTE..."
+if ! out=$(g fetch --quiet --no-tags "$UPSTREAM_REMOTE" "+refs/tags/v$VER:refs/upstream-check/v$VER" 2>&1); then
+    printf '%s\n' "$out" >&2
+    g show-ref --verify --quiet "$BASE" || die "could not fetch tag v$VER from $UPSTREAM_REMOTE, does upstream have that release?"
+    warn "could not fetch v$VER from $UPSTREAM_REMOTE, using the local tag as is"
+else
+    fetched=$(g rev-parse "refs/upstream-check/v$VER^{commit}")
+    g update-ref -d "refs/upstream-check/v$VER"
+    if g show-ref --verify --quiet "$BASE"; then
+        [[ $(g rev-parse "$BASE^{commit}") == "$fetched" ]] ||
+            die "local tag v$VER does not match upstream's, delete it with 'git tag -d v$VER' and run again"
+    else
+        g fetch --quiet --no-tags "$UPSTREAM_REMOTE" "refs/tags/v$VER:refs/tags/v$VER"
+    fi
+fi
+if g show-ref --verify --quiet "refs/heads/v$VER" &&
+    [[ $(g rev-parse "refs/heads/v$VER") != $(g rev-parse "$BASE^{commit}") ]]; then
+    warn "local branch v$VER does not match upstream's tag v$VER, the tag is used"
+fi
+g merge-base --is-ancestor "$BASE" HEAD ||
+    warn "$BRANCH does not contain upstream v$VER, merge it first or the patch will revert upstream changes"
 if [[ -n $(g status --porcelain --untracked-files=no) ]]; then
     ((DRY_RUN)) || die 'the working tree has uncommitted changes, commit them first so the patch matches the branch'
     warn 'the working tree has uncommitted changes, they are not part of the patch'
