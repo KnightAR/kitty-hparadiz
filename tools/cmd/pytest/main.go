@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kovidgoyal/go-shm"
+	shm "github.com/kovidgoyal/go-shm/v2"
 	"github.com/kovidgoyal/kitty/kittens/ssh"
 	"github.com/kovidgoyal/kitty/tools/cli"
 )
@@ -53,8 +53,8 @@ func shm_entry_point(root *cli.Command) {
 			return test_integration_with_python(args)
 		},
 	})
-
 }
+
 func EntryPoint(root *cli.Command) {
 	root = root.AddSubCommand(&cli.Command{
 		Name:   "__pytest__",
