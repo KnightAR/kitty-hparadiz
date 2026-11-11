@@ -498,6 +498,28 @@ def truncate_line(line: str, width: int) -> str:
     return out + '…'
 
 
+class DrawnTitle(NamedTuple):
+    "The cells of the first line of the most recently drawn title, used to place the tab close button"
+    start: int
+    cells: tuple[str, ...]
+
+
+last_drawn_title: DrawnTitle | None = None
+
+
+def title_end(screen: Screen, title: DrawnTitle | None, before: int, end: int) -> int:
+    """The column after the last cell of title still showing on the tab bar, ignoring padding and
+    separators drawn over its tail, or end if the title was not drawn by draw_title()"""
+    if title is None or title.start < before:
+        return end
+    line = screen.line(0)
+    for x in range(min(end, title.start + len(title.cells)) - 1, title.start - 1, -1):
+        q = line[x]
+        if q != ' ' and (q == '…' or q == title.cells[x - title.start]):
+            return x + 1
+    return end
+
+
 def draw_title(draw_data: DrawData, screen: Screen, tab: TabBarData, index: int, max_title_length: int = 0) -> None:
     title = apply_title_template(draw_data, tab, index, max_title_length)
     if draw_data.max_tab_title_lines > 1 and draw_data.wrap_width:
@@ -520,6 +542,10 @@ def draw_title(draw_data: DrawData, screen: Screen, tab: TabBarData, index: int,
         if screen.cursor.x > x_limit:
             screen.cursor.x = x_limit - 1
             screen.draw('…')
+    global last_drawn_title
+    if screen.cursor.y == 0 and screen.cursor.x > before_draw:
+        line = screen.line(0)
+        last_drawn_title = DrawnTitle(before_draw, tuple(line[x] for x in range(before_draw, screen.cursor.x)))
 
 
 DrawTabFunc = Callable[[DrawData, Screen, TabBarData, int, int, int, bool, ExtraData], int]
@@ -1086,18 +1112,21 @@ class TabBar:
             has_close_button = tab.tab_id >= 0 and max_tab_length >= CLOSE_BUTTON_MIN_TAB_LENGTH
             if has_close_button:
                 max_tab_length -= CLOSE_BUTTON_WIDTH
+            global last_drawn_title
+            last_drawn_title = None
             end = self.draw_func(self.draw_data, s, tab, before, max_tab_length, i + 1, tab is last_tab, ed)
             close_button = None
             if has_close_button and end < s.columns:
-                # Insert the button after the tab body, shifting anything the
-                # draw function drew after it, such as a separator, to the right.
+                # Insert the button right after the title, inside the tab, shifting the
+                # padding and separators the draw function drew after it to the right.
                 after = s.cursor.x
-                s.cursor.x = end
+                bx = title_end(s, last_drawn_title, before, end)
+                s.cursor.x = bx
                 s.insert_characters(CLOSE_BUTTON_WIDTH)
                 s.cursor.bg = as_rgb(self.draw_data.tab_bg(tab))
                 s.cursor.fg = as_rgb(self.draw_data.tab_fg(tab))
                 s.draw(' ✘')
-                close_button = CellRange(end, end + CLOSE_BUTTON_WIDTH - 1)
+                close_button = CellRange(bx, bx + CLOSE_BUTTON_WIDTH - 1)
                 end += CLOSE_BUTTON_WIDTH
                 s.cursor.x = min(s.columns, after + CLOSE_BUTTON_WIDTH)
             s.cursor.bg = s.cursor.fg = 0

@@ -152,6 +152,9 @@ class TestTabBar(BaseTest):
         self.ae(tb.close_button_tab_id_at(close_x, y), 1)
         self.ae(tb.close_button_tab_id_at(tab_x, y), 0)
         self.ae(tb.close_button_tab_id_at(close_x, tb.window_geometry.bottom + 5), 0)
+        # the button sits inside the tab, right after its title, before any separator
+        self.assertIn('first tab ✘', str(tb.screen.line(0)))
+        self.ae(tb.screen.line(0)[first.close_button.end], '✘')
 
     def test_vertical_tab_bar_hit_testing(self) -> None:
         self.set_options(
