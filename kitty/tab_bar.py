@@ -776,6 +776,10 @@ def load_custom_draw_title(data: dict[str, Any]) -> CustomDrawTitleFunc:
     return CustomDrawTitleFunc(data, m.get('draw_title'))
 
 
+CLOSE_BUTTON_WIDTH = 2  # a space and the ✘
+CLOSE_BUTTON_MIN_TAB_LENGTH = CLOSE_BUTTON_WIDTH + 1  # leave at least one cell for the tab itself
+
+
 class CellRange(NamedTuple):
     start: int
     end: int
@@ -1077,17 +1081,25 @@ class TabBar:
             s.cursor.fg = as_rgb(self.draw_data.tab_fg(tab))
             s.cursor.bold, s.cursor.italic = self.active_font_style if tab.is_active else self.inactive_font_style
             before = s.cursor.x
+            # Reserve room for the close button out of the tab's length, so that
+            # the layout accounts for it and it never covers the title.
+            has_close_button = tab.tab_id >= 0 and max_tab_length >= CLOSE_BUTTON_MIN_TAB_LENGTH
+            if has_close_button:
+                max_tab_length -= CLOSE_BUTTON_WIDTH
             end = self.draw_func(self.draw_data, s, tab, before, max_tab_length, i + 1, tab is last_tab, ed)
             close_button = None
-            if not ed.for_layout and tab.tab_id >= 0 and end - before >= 7:
-                close_x = max(before + 1, end - 2)
+            if has_close_button and end < s.columns:
+                # Insert the button after the tab body, shifting anything the
+                # draw function drew after it, such as a separator, to the right.
+                after = s.cursor.x
+                s.cursor.x = end
+                s.insert_characters(CLOSE_BUTTON_WIDTH)
                 s.cursor.bg = as_rgb(self.draw_data.tab_bg(tab))
                 s.cursor.fg = as_rgb(self.draw_data.tab_fg(tab))
-                close_button = CellRange(close_x - 1, close_x)
-                s.cursor.x = close_x - 1
-                s.draw(' ')
-                s.draw('✘')
-                s.cursor.x = end
+                s.draw(' ✘')
+                close_button = CellRange(end, end + CLOSE_BUTTON_WIDTH - 1)
+                end += CLOSE_BUTTON_WIDTH
+                s.cursor.x = min(s.columns, after + CLOSE_BUTTON_WIDTH)
             s.cursor.bg = s.cursor.fg = 0
             cell_ranges.append(TabExtent(tab_id=tab.tab_id, x=CellRange(before, end), close_button=close_button))
             if not ed.for_layout and tab is not last_tab and s.cursor.x > s.columns - max_tab_lengths[i + 1]:

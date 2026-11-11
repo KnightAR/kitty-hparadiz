@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from kitty.fast_data_types import LEFT_EDGE, Color, Region, Screen
 from kitty.options.utils import tab_title_wrap
-from kitty.tab_bar import CellRange, DrawData, ExtraData, TabBar, TabBarData, TabExtent, WindowDropTarget, as_rgb, powerline_symbols, truncate_line, wrap_title
+from kitty.tab_bar import CLOSE_BUTTON_WIDTH, CellRange, DrawData, ExtraData, TabBar, TabBarData, TabExtent, WindowDropTarget, as_rgb, powerline_symbols, truncate_line, wrap_title
 from kitty.utils import color_as_int
 
 from .base import BaseTest
@@ -662,7 +662,8 @@ class TestTabBar(BaseTest):
             ('powerline', 80, ['1'] * 5 + [long_title] * 3),
             ('slant', 126, ['1'] * 9 + [long_title] * 4),
         ):
-            text = line(titles, columns, tab_bar_style=style)
+            # leave room for the close button each tab has
+            text = line(titles, columns + CLOSE_BUTTON_WIDTH * len(titles), tab_bar_style=style)
             self.ae(text.count(long_title), titles.count(long_title), (style, text))
             self.assertNotIn('…', text)
 
